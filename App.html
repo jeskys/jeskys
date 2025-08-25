@@ -1,0 +1,347 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+
+void main() => runApp(const LifeSimApp());
+
+class LifeSimApp extends StatelessWidget {
+  const LifeSimApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Life Sim',
+      home: const GameScreen(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class Character {
+  String name;
+  int age;
+  int happiness, health, smarts, looks;
+  int money;
+  bool alive;
+  Set<String> traits;
+  Character({
+    required this.name,
+    this.age = 0,
+    this.happiness = 50,
+    this.health = 50,
+    this.smarts = 50,
+    this.looks = 50,
+    this.money = 0,
+    this.alive = true,
+    Set<String>? traits,
+  }) : traits = traits ?? {};
+}
+
+class Effect {
+  final String? stat; // happiness, health, smarts, looks, money
+  final int? delta;
+  final int? percent; // optional percent change (for money)
+  final String? addTrait;
+  final String? removeTrait;
+  final double? deathChance; // 0.0..1.0
+  const Effect({this.stat, this.delta, this.percent, this.addTrait, this.removeTrait, this.deathChance});
+}
+
+class Choice {
+  final String label;
+  final List<Effect> effects;
+  const Choice({required this.label, this.effects = const []});
+}
+
+class Event {
+  final String id;
+  final String title;
+  final String text;
+  final int? minAge, maxAge;
+  final List<String> requiredTraits;
+  final List<String> forbiddenTraits;
+  final int weight; // relative probability
+  final List<Choice> choices;
+
+  const Event({
+    required this.id,
+    required this.title,
+    required this.text,
+    this.minAge,
+    this.maxAge,
+    this.requiredTraits = const [],
+    this.forbiddenTraits = const [],
+    this.weight = 1,
+    this.choices = const [],
+  });
+
+  bool isEligible(Character c) {
+    if (minAge != null && c.age < minAge!) return false;
+    if (maxAge != null && c.age > maxAge!) return false;
+    if (requiredTraits.any((t) => !c.traits.contains(t))) return false;
+    if (forbiddenTraits.any((t) => c.traits.contains(t))) return false;
+    return true;
+  }
+}
+
+class GameState extends ChangeNotifier {
+  final Random rng = Random();
+  late Character c;
+  List<String> log = [];
+  Event? currentEvent;
+
+  GameState({String? seedName}) {
+    c = Character(name: seedName ?? _randomName());
+    log.add("You were born. Hello, ${c.name}!");
+    _nextYear();
+  }
+
+  static String _randomName() {
+    const first = ['Alex','Sam','Riley','Jordan','Taylor','Casey','Avery','Jamie'];
+    const last  = ['Lee','Carter','Kim','Rivera','Singh','Patel','Nguyen','Garcia'];
+    final rng = Random();
+    return '${first[rng.nextInt(first.length)]} ${last[rng.nextInt(last.length)]}';
+    }
+
+  // --- Content: sample starter events (expand later) ---
+  List<Event> get events => [
+    Event(
+      id: 'toy',
+      title: 'First Toy',
+      text: 'A relative gifts you a toy. What do you do?',
+      minAge: 1, maxAge: 4, weight: 3,
+      choices: [
+        Choice(label: 'Share it', effects: [Effect(stat: 'happiness', delta: 5)]),
+        Choice(label: 'Take it apart', effects: [Effect(stat: 'smarts', delta: 5)]),
+        Choice(label: 'Throw a tantrum', effects: [Effect(stat: 'happiness', delta: -5)]),
+      ],
+    ),
+    Event(
+      id: 'school',
+      title: 'School Years',
+      text: 'You have an important exam.',
+      minAge: 6, maxAge: 18, weight: 5,
+      choices: [
+        Choice(label: 'Study hard', effects: [Effect(stat: 'smarts', delta: 7), Effect(stat: 'happiness', delta: -2)]),
+        Choice(label: 'Wing it', effects: [Effect(stat: 'smarts', delta: rngDelta(-3, 3))]),
+        Choice(label: 'Cheat', effects: [Effect(stat: 'smarts', delta: 1), Effect(stat: 'happiness', delta: 1), Effect(addTrait: 'guilty')]),
+      ],
+    ),
+    Event(
+      id: 'job',
+      title: 'First Job',
+      text: 'You see a posting for a barista job.',
+      minAge: 16, maxAge: 30, weight: 4,
+      choices: [
+        Choice(label: 'Apply', effects: [Effect(stat: 'money', delta: 500), Effect(stat: 'happiness', delta: 3), Effect(addTrait: 'employed')]),
+        Choice(label: 'Ignore', effects: [Effect(stat: 'happiness', delta: 1)]),
+      ],
+    ),
+    Event(
+      id: 'health_check',
+      title: 'Health Check',
+      text: 'Routine health screening.',
+      minAge: 30, maxAge: 80, weight: 3,
+      choices: [
+        Choice(label: 'Follow doctor advice', effects: [Effect(stat: 'health', delta: 6)]),
+        Choice(label: 'Eh, later', effects: [Effect(stat: 'health', delta: -3)]),
+      ],
+    ),
+    Event(
+      id: 'windfall',
+      title: 'Unexpected Windfall',
+      text: 'You receive a small inheritance.',
+      minAge: 18, maxAge: 80, weight: 2,
+      choices: [
+        Choice(label: 'Invest it', effects: [Effect(stat: 'money', percent: 20), Effect(addTrait: 'investor')]),
+        Choice(label: 'Spend it', effects: [Effect(stat: 'money', delta: 1000), Effect(stat: 'happiness', delta: 4)]),
+      ],
+    ),
+    Event(
+      id: 'risky',
+      title: 'Risky Adventure',
+      text: 'Friends invite you to a risky adventure.',
+      minAge: 14, maxAge: 40, weight: 1,
+      choices: [
+        Choice(label: 'Go for it', effects: [Effect(stat: 'happiness', delta: 6), Effect(deathChance: 0.03)]),
+        Choice(label: 'Play it safe', effects: [Effect(stat: 'happiness', delta: -1)]),
+      ],
+    ),
+  ];
+
+  static Effect rngDelta(int min, int max) => Effect(stat: 'smarts', delta: null); // placeholder, not used directly
+
+  void applyChoice(Choice choice) {
+    if (!c.alive) return;
+    for (final e in choice.effects) {
+      if (e.addTrait != null) c.traits.add(e.addTrait!);
+      if (e.removeTrait != null) c.traits.remove(e.removeTrait!);
+      if (e.deathChance != null) {
+        if (rng.nextDouble() < e.deathChance!) {
+          c.alive = false;
+          log.add("⚠️ ${c.age}: A tragic outcome. You passed away.");
+        }
+      }
+      if (e.stat != null && e.delta != null) _applyDelta(e.stat!, e.delta!);
+      if (e.stat != null && e.percent != null) _applyPercent(e.stat!, e.percent!);
+    }
+    if (c.alive) _nextYear();
+    notifyListeners();
+  }
+
+  void _applyDelta(String stat, int delta) {
+    switch (stat) {
+      case 'happiness': c.happiness = _clamp(c.happiness + delta); break;
+      case 'health': c.health = _clamp(c.health + delta); break;
+      case 'smarts': c.smarts = _clamp(c.smarts + delta); break;
+      case 'looks': c.looks = _clamp(c.looks + delta); break;
+      case 'money': c.money = max(0, c.money + delta); break;
+    }
+  }
+
+  void _applyPercent(String stat, int percent) {
+    if (stat != 'money') return;
+    final factor = 1 + percent / 100.0;
+    c.money = max(0, (c.money * factor).round());
+  }
+
+  int _clamp(int v) => v.clamp(0, 100);
+
+  void _nextYear() {
+    if (!c.alive) return;
+    c.age += 1;
+    // Soft aging effects
+    if (c.age > 60) c.health = _clamp(c.health - 1);
+    // Natural income if employed
+    if (c.traits.contains('employed')) c.money += 300;
+    // Select next event
+    currentEvent = _rollEvent();
+    log.add("${c.age}: A new year begins.");
+    if (currentEvent != null) {
+      log.add("• ${currentEvent!.title} — ${currentEvent!.text}");
+    } else {
+      log.add("• A quiet year passes.");
+    }
+    // Check natural death
+    final naturalDeathChance = max(0, c.age - 85) * 0.01 + (c.health < 15 ? 0.05 : 0.0);
+    if (rng.nextDouble() < naturalDeathChance) {
+      c.alive = false;
+      log.add("🌅 ${c.age}: You passed away peacefully.");
+    }
+  }
+
+  Event? _rollEvent() {
+    final pool = events.where((e) => e.isEligible(c)).toList();
+    if (pool.isEmpty) return null;
+    final total = pool.fold<int>(0, (sum, e) => sum + e.weight);
+    var roll = rng.nextInt(total) + 1;
+    for (final e in pool) {
+      roll -= e.weight;
+      if (roll <= 0) return e;
+    }
+    return pool.first;
+  }
+
+  void restart() {
+    log.clear();
+    c = Character(name: _randomName());
+    log.add("You were born. Hello, ${c.name}!");
+    _nextYear();
+    notifyListeners();
+  }
+}
+
+class GameScreen extends StatefulWidget {
+  const GameScreen({super.key});
+  @override
+  State<GameScreen> createState() => _GameScreenState();
+}
+
+class _GameScreenState extends State<GameScreen> {
+  late GameState state;
+
+  @override
+  void initState() {
+    super.initState();
+    state = GameState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = state.c;
+    final e = state.currentEvent;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Life Sim — MVP')),
+      body: AnimatedBuilder(
+        animation: state,
+        builder: (context, _) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                _StatsBar(c: c),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView(
+                    children: state.log.map((line) => Text(line)).toList(),
+                  ),
+                ),
+                if (c.alive && e != null) ...[
+                  const Divider(),
+                  Text(e.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(e.text),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: e.choices.map((choice) {
+                      return ElevatedButton(
+                        onPressed: () => setState(() => state.applyChoice(choice)),
+                        child: Text(choice.label),
+                      );
+                    }).toList(),
+                  ),
+                ] else if (!c.alive) ...[
+                  const Divider(),
+                  ElevatedButton.icon(
+                    onPressed: () => setState(() => state.restart()),
+                    icon: const Icon(Icons.restart_alt),
+                    label: const Text("Start a new life"),
+                  )
+                ]
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatsBar extends StatelessWidget {
+  final Character c;
+  const _StatsBar({required this.c});
+  @override
+  Widget build(BuildContext context) {
+    Widget stat(String label, String value) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12)),
+        LinearProgressIndicator(value: double.parse(value) / 100.0),
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("${c.name}, Age ${c.age}${c.traits.isEmpty ? '' : ' • ' + c.traits.join(', ')}"),
+        const SizedBox(height: 6),
+        stat('Happiness', c.happiness.toString()),
+        stat('Health', c.health.toString()),
+        stat('Smarts', c.smarts.toString()),
+        stat('Looks', c.looks.toString()),
+        const SizedBox(height: 6),
+        Text("Money: \$${c.money}"),
+      ],
+    );
+  }
+}
