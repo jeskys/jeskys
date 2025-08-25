@@ -1,347 +1,586 @@
-import 'dart:math';
-import 'package:flutter/material.dart';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Life Sim (HTML)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f8f8; }
+    h1 { margin-top: 0; }
+    #stats { margin-bottom: 15px; }
+    .stat-bar { margin: 5px 0; }
+    .bar { display: inline-block; height: 12px; background: #4caf50; }
+    #log { background: #fff; padding: 10px; border: 1px solid #ccc; height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    button { margin: 4px; }
+  </style>
+</head>
+<body>
 
-void main() => runApp(const LifeSimApp());
+<h1>Life Sim (HTML Version)</h1>
+<div id="stats"></div>
+<div id="log"></div>
+<div id="choices"></div>
+<button id="nextBtn" style="display:none;">Next Year</button>
 
-class LifeSimApp extends StatelessWidget {
-  const LifeSimApp({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Life Sim',
-      home: const GameScreen(),
-      debugShowCheckedModeBanner: false,
-    );
-  }
-}
-
+<script>
 class Character {
-  String name;
-  int age;
-  int happiness, health, smarts, looks;
-  int money;
-  bool alive;
-  Set<String> traits;
-  Character({
-    required this.name,
-    this.age = 0,
-    this.happiness = 50,
-    this.health = 50,
-    this.smarts = 50,
-    this.looks = 50,
-    this.money = 0,
-    this.alive = true,
-    Set<String>? traits,
-  }) : traits = traits ?? {};
+  constructor(name) {
+    this.name = name;
+    this.age = 0;
+    this.happiness = 50;
+    this.health = 50;
+    this.smarts = 50;
+    this.looks = 50;
+    this.money = 0;
+    this.alive = true;
+    this.traits = [];
+  }
 }
 
 class Effect {
-  final String? stat; // happiness, health, smarts, looks, money
-  final int? delta;
-  final int? percent; // optional percent change (for money)
-  final String? addTrait;
-  final String? removeTrait;
-  final double? deathChance; // 0.0..1.0
-  const Effect({this.stat, this.delta, this.percent, this.addTrait, this.removeTrait, this.deathChance});
+  constructor({stat=null, delta=0, percent=0, addTrait=null, deathChance=0}) {
+    this.stat = stat;
+    this.delta = delta;
+    this.percent = percent;
+    this.addTrait = addTrait;
+    this.deathChance = deathChance;
+  }
 }
 
 class Choice {
-  final String label;
-  final List<Effect> effects;
-  const Choice({required this.label, this.effects = const []});
+  constructor(label, effects=[]) {
+    this.label = label;
+    this.effects = effects;
+  }
 }
 
 class Event {
-  final String id;
-  final String title;
-  final String text;
-  final int? minAge, maxAge;
-  final List<String> requiredTraits;
-  final List<String> forbiddenTraits;
-  final int weight; // relative probability
-  final List<Choice> choices;
+  constructor({id, title, text, minAge=0, maxAge=100, weight=1, choices=[]}) {
+    this.id = id; this.title = title; this.text = text;
+    this.minAge = minAge; this.maxAge = maxAge;
+    this.weight = weight; this.choices = choices;
+  }
+  eligible(c) { return c.age >= this.minAge && c.age <= this.maxAge; }
+}
 
-  const Event({
-    required this.id,
-    required this.title,
-    required this.text,
-    this.minAge,
-    this.maxAge,
-    this.requiredTraits = const [],
-    this.forbiddenTraits = const [],
-    this.weight = 1,
-    this.choices = const [],
+const events = [
+  new Event({
+    id: 'toy',
+    title: 'First Toy',
+    text: 'A relative gifts you a toy. What do you do?',
+    minAge: 1, maxAge: 4, weight: 3,
+    choices: [
+      new Choice('Share it', [new Effect({stat:'happiness', delta:5})]),
+      new Choice('Take it apart', [new Effect({stat:'smarts', delta:5})]),
+      new Choice('Throw a tantrum', [new Effect({stat:'happiness', delta:-5})]),
+    ]
+  }),
+  new Event({
+    id: 'exam',
+    title: 'School Exam',
+    text: 'You have an important exam.',
+    minAge: 6, maxAge: 18, weight: 4,
+    choices: [
+      new Choice('Study hard', [new Effect({stat:'smarts', delta:7}), new Effect({stat:'happiness', delta:-2})]),
+      new Choice('Wing it', [new Effect({stat:'smarts', delta: Math.floor(Math.random()*7)-3})]),
+    ]
+  }),
+  new Event({
+    id: 'job',
+    title: 'First Job',
+    text: 'You see a posting for a barista job.',
+    minAge: 16, maxAge: 30, weight: 3,
+    choices: [
+      new Choice('Apply', [new Effect({stat:'money', delta:500}), new Effect({stat:'happiness', delta:3})]),
+      new Choice('Ignore', [new Effect({stat:'happiness', delta:1})]),
+    ]
+  }),
+  new Event({
+    id: 'risky',
+    title: 'Risky Adventure',
+    text: 'Friends invite you to a risky adventure.',
+    minAge: 14, maxAge: 40, weight: 1,
+    choices: [
+      new Choice('Go for it', [new Effect({stat:'happiness', delta:6}), new Effect({deathChance:0.05})]),
+      new Choice('Play it safe', [new Effect({stat:'happiness', delta:-1})]),
+    ]
+  }),
+];
+
+let c = new Character(randomName());
+let logEl = document.getElementById("log");
+let statsEl = document.getElementById("stats");
+let choicesEl = document.getElementById("choices");
+let nextBtn = document.getElementById("nextBtn");
+
+function randomName() {
+  const first = ['Alex','Sam','Riley','Jordan','Taylor','Casey','Avery','Jamie'];
+  const last  = ['Lee','Carter','Kim','Rivera','Singh','Patel','Nguyen','Garcia'];
+  return first[Math.floor(Math.random()*first.length)]+" "+last[Math.floor(Math.random()*last.length)];
+}
+
+function log(msg) {
+  logEl.innerHTML += msg + "<br>";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function showStats() {
+  function bar(label, val) {
+    return `<div class="stat-bar">${label}: ${val}<div class="bar" style="width:${val}%"></div></div>`;
+  }
+  statsEl.innerHTML = `
+    <strong>${c.name}</strong>, Age ${c.age}<br>
+    ${bar("Happiness",c.happiness)}
+    ${bar("Health",c.health)}
+    ${bar("Smarts",c.smarts)}
+    ${bar("Looks",c.looks)}
+    Money: $${c.money}
+  `;
+}
+
+function nextYear() {
+  if (!c.alive) return;
+  c.age++;
+  log(`<b>Age ${c.age}</b>: A new year begins.`);
+  // natural health decline
+  if (c.age > 60) c.health = Math.max(0, c.health-1);
+  // pick event
+  const pool = events.filter(e => e.eligible(c));
+  if (pool.length === 0) {
+    log("Nothing special happens this year.");
+    nextBtn.style.display = "inline";
+    choicesEl.innerHTML = "";
+    showStats();
+    return;
+  }
+  const e = pool[Math.floor(Math.random()*pool.length)];
+  log(`<i>${e.title}</i>: ${e.text}`);
+  choicesEl.innerHTML = "";
+  e.choices.forEach(choice => {
+    const btn = document.createElement("button");
+    btn.innerText = choice.label;
+    btn.onclick = () => { applyChoice(choice); };
+    choicesEl.appendChild(btn);
   });
-
-  bool isEligible(Character c) {
-    if (minAge != null && c.age < minAge!) return false;
-    if (maxAge != null && c.age > maxAge!) return false;
-    if (requiredTraits.any((t) => !c.traits.contains(t))) return false;
-    if (forbiddenTraits.any((t) => c.traits.contains(t))) return false;
-    return true;
-  }
+  showStats();
 }
 
-class GameState extends ChangeNotifier {
-  final Random rng = Random();
-  late Character c;
-  List<String> log = [];
-  Event? currentEvent;
-
-  GameState({String? seedName}) {
-    c = Character(name: seedName ?? _randomName());
-    log.add("You were born. Hello, ${c.name}!");
-    _nextYear();
-  }
-
-  static String _randomName() {
-    const first = ['Alex','Sam','Riley','Jordan','Taylor','Casey','Avery','Jamie'];
-    const last  = ['Lee','Carter','Kim','Rivera','Singh','Patel','Nguyen','Garcia'];
-    final rng = Random();
-    return '${first[rng.nextInt(first.length)]} ${last[rng.nextInt(last.length)]}';
-    }
-
-  // --- Content: sample starter events (expand later) ---
-  List<Event> get events => [
-    Event(
-      id: 'toy',
-      title: 'First Toy',
-      text: 'A relative gifts you a toy. What do you do?',
-      minAge: 1, maxAge: 4, weight: 3,
-      choices: [
-        Choice(label: 'Share it', effects: [Effect(stat: 'happiness', delta: 5)]),
-        Choice(label: 'Take it apart', effects: [Effect(stat: 'smarts', delta: 5)]),
-        Choice(label: 'Throw a tantrum', effects: [Effect(stat: 'happiness', delta: -5)]),
-      ],
-    ),
-    Event(
-      id: 'school',
-      title: 'School Years',
-      text: 'You have an important exam.',
-      minAge: 6, maxAge: 18, weight: 5,
-      choices: [
-        Choice(label: 'Study hard', effects: [Effect(stat: 'smarts', delta: 7), Effect(stat: 'happiness', delta: -2)]),
-        Choice(label: 'Wing it', effects: [Effect(stat: 'smarts', delta: rngDelta(-3, 3))]),
-        Choice(label: 'Cheat', effects: [Effect(stat: 'smarts', delta: 1), Effect(stat: 'happiness', delta: 1), Effect(addTrait: 'guilty')]),
-      ],
-    ),
-    Event(
-      id: 'job',
-      title: 'First Job',
-      text: 'You see a posting for a barista job.',
-      minAge: 16, maxAge: 30, weight: 4,
-      choices: [
-        Choice(label: 'Apply', effects: [Effect(stat: 'money', delta: 500), Effect(stat: 'happiness', delta: 3), Effect(addTrait: 'employed')]),
-        Choice(label: 'Ignore', effects: [Effect(stat: 'happiness', delta: 1)]),
-      ],
-    ),
-    Event(
-      id: 'health_check',
-      title: 'Health Check',
-      text: 'Routine health screening.',
-      minAge: 30, maxAge: 80, weight: 3,
-      choices: [
-        Choice(label: 'Follow doctor advice', effects: [Effect(stat: 'health', delta: 6)]),
-        Choice(label: 'Eh, later', effects: [Effect(stat: 'health', delta: -3)]),
-      ],
-    ),
-    Event(
-      id: 'windfall',
-      title: 'Unexpected Windfall',
-      text: 'You receive a small inheritance.',
-      minAge: 18, maxAge: 80, weight: 2,
-      choices: [
-        Choice(label: 'Invest it', effects: [Effect(stat: 'money', percent: 20), Effect(addTrait: 'investor')]),
-        Choice(label: 'Spend it', effects: [Effect(stat: 'money', delta: 1000), Effect(stat: 'happiness', delta: 4)]),
-      ],
-    ),
-    Event(
-      id: 'risky',
-      title: 'Risky Adventure',
-      text: 'Friends invite you to a risky adventure.',
-      minAge: 14, maxAge: 40, weight: 1,
-      choices: [
-        Choice(label: 'Go for it', effects: [Effect(stat: 'happiness', delta: 6), Effect(deathChance: 0.03)]),
-        Choice(label: 'Play it safe', effects: [Effect(stat: 'happiness', delta: -1)]),
-      ],
-    ),
-  ];
-
-  static Effect rngDelta(int min, int max) => Effect(stat: 'smarts', delta: null); // placeholder, not used directly
-
-  void applyChoice(Choice choice) {
-    if (!c.alive) return;
-    for (final e in choice.effects) {
-      if (e.addTrait != null) c.traits.add(e.addTrait!);
-      if (e.removeTrait != null) c.traits.remove(e.removeTrait!);
-      if (e.deathChance != null) {
-        if (rng.nextDouble() < e.deathChance!) {
-          c.alive = false;
-          log.add("⚠️ ${c.age}: A tragic outcome. You passed away.");
-        }
+function applyChoice(choice) {
+  choice.effects.forEach(e => {
+    if (e.stat) {
+      if (e.percent) {
+        if (e.stat==="money") c.money = Math.floor(c.money*(1+e.percent/100));
+      } else {
+        c[e.stat] = Math.max(0, Math.min(100, c[e.stat]+e.delta));
       }
-      if (e.stat != null && e.delta != null) _applyDelta(e.stat!, e.delta!);
-      if (e.stat != null && e.percent != null) _applyPercent(e.stat!, e.percent!);
     }
-    if (c.alive) _nextYear();
-    notifyListeners();
-  }
-
-  void _applyDelta(String stat, int delta) {
-    switch (stat) {
-      case 'happiness': c.happiness = _clamp(c.happiness + delta); break;
-      case 'health': c.health = _clamp(c.health + delta); break;
-      case 'smarts': c.smarts = _clamp(c.smarts + delta); break;
-      case 'looks': c.looks = _clamp(c.looks + delta); break;
-      case 'money': c.money = max(0, c.money + delta); break;
-    }
-  }
-
-  void _applyPercent(String stat, int percent) {
-    if (stat != 'money') return;
-    final factor = 1 + percent / 100.0;
-    c.money = max(0, (c.money * factor).round());
-  }
-
-  int _clamp(int v) => v.clamp(0, 100);
-
-  void _nextYear() {
-    if (!c.alive) return;
-    c.age += 1;
-    // Soft aging effects
-    if (c.age > 60) c.health = _clamp(c.health - 1);
-    // Natural income if employed
-    if (c.traits.contains('employed')) c.money += 300;
-    // Select next event
-    currentEvent = _rollEvent();
-    log.add("${c.age}: A new year begins.");
-    if (currentEvent != null) {
-      log.add("• ${currentEvent!.title} — ${currentEvent!.text}");
-    } else {
-      log.add("• A quiet year passes.");
-    }
-    // Check natural death
-    final naturalDeathChance = max(0, c.age - 85) * 0.01 + (c.health < 15 ? 0.05 : 0.0);
-    if (rng.nextDouble() < naturalDeathChance) {
+    if (e.addTrait) c.traits.push(e.addTrait);
+    if (e.deathChance && Math.random() < e.deathChance) {
       c.alive = false;
-      log.add("🌅 ${c.age}: You passed away peacefully.");
+      log("⚠️ A tragic event occurred. You died.");
     }
-  }
+  });
+  choicesEl.innerHTML = "";
+  if (c.alive) nextBtn.style.display = "inline";
+  else nextBtn.style.display = "none";
+  showStats();
+}
 
-  Event? _rollEvent() {
-    final pool = events.where((e) => e.isEligible(c)).toList();
-    if (pool.isEmpty) return null;
-    final total = pool.fold<int>(0, (sum, e) => sum + e.weight);
-    var roll = rng.nextInt(total) + 1;
-    for (final e in pool) {
-      roll -= e.weight;
-      if (roll <= 0) return e;
+nextBtn.onclick = () => { nextBtn.style.display="none"; nextYear(); };
+
+log(`You were born. Welcome, ${c.name}!`);
+showStats();
+nextYear();
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Life Sim (HTML)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f8f8; }
+    h1 { margin-top: 0; }
+    #stats { margin-bottom: 15px; }
+    .stat-bar { margin: 5px 0; }
+    .bar { display: inline-block; height: 12px; background: #4caf50; }
+    #log { background: #fff; padding: 10px; border: 1px solid #ccc; height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    button { margin: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Life Sim (HTML Version)</h1>
+<div id="stats"></div>
+<div id="log"></div>
+<div id="choices"></div>
+<button id="nextBtn" style="display:none;">Next Year</button>
+
+<script>
+class Character {
+  constructor(name) {
+    this.name = name;
+    this.age = 0;
+    this.happiness = 50;
+    this.health = 50;
+    this.smarts = 50;
+    this.looks = 50;
+    this.money = 0;
+    this.alive = true;
+    this.traits = [];
+  }
+}
+
+class Effect {
+  constructor({stat=null, delta=0, percent=0, addTrait=null, deathChance=0}) {
+    this.stat = stat;
+    this.delta = delta;
+    this.percent = percent;
+    this.addTrait = addTrait;
+    this.deathChance = deathChance;
+  }
+}
+
+class Choice {
+  constructor(label, effects=[]) {
+    this.label = label;
+    this.effects = effects;
+  }
+}
+
+class Event {
+  constructor({id, title, text, minAge=0, maxAge=100, weight=1, choices=[]}) {
+    this.id = id; this.title = title; this.text = text;
+    this.minAge = minAge; this.maxAge = maxAge;
+    this.weight = weight; this.choices = choices;
+  }
+  eligible(c) { return c.age >= this.minAge && c.age <= this.maxAge; }
+}
+
+const events = [
+  new Event({
+    id: 'toy',
+    title: 'First Toy',
+    text: 'A relative gifts you a toy. What do you do?',
+    minAge: 1, maxAge: 4, weight: 3,
+    choices: [
+      new Choice('Share it', [new Effect({stat:'happiness', delta:5})]),
+      new Choice('Take it apart', [new Effect({stat:'smarts', delta:5})]),
+      new Choice('Throw a tantrum', [new Effect({stat:'happiness', delta:-5})]),
+    ]
+  }),
+  new Event({
+    id: 'exam',
+    title: 'School Exam',
+    text: 'You have an important exam.',
+    minAge: 6, maxAge: 18, weight: 4,
+    choices: [
+      new Choice('Study hard', [new Effect({stat:'smarts', delta:7}), new Effect({stat:'happiness', delta:-2})]),
+      new Choice('Wing it', [new Effect({stat:'smarts', delta: Math.floor(Math.random()*7)-3})]),
+    ]
+  }),
+  new Event({
+    id: 'job',
+    title: 'First Job',
+    text: 'You see a posting for a barista job.',
+    minAge: 16, maxAge: 30, weight: 3,
+    choices: [
+      new Choice('Apply', [new Effect({stat:'money', delta:500}), new Effect({stat:'happiness', delta:3})]),
+      new Choice('Ignore', [new Effect({stat:'happiness', delta:1})]),
+    ]
+  }),
+  new Event({
+    id: 'risky',
+    title: 'Risky Adventure',
+    text: 'Friends invite you to a risky adventure.',
+    minAge: 14, maxAge: 40, weight: 1,
+    choices: [
+      new Choice('Go for it', [new Effect({stat:'happiness', delta:6}), new Effect({deathChance:0.05})]),
+      new Choice('Play it safe', [new Effect({stat:'happiness', delta:-1})]),
+    ]
+  }),
+];
+
+let c = new Character(randomName());
+let logEl = document.getElementById("log");
+let statsEl = document.getElementById("stats");
+let choicesEl = document.getElementById("choices");
+let nextBtn = document.getElementById("nextBtn");
+
+function randomName() {
+  const first = ['Alex','Sam','Riley','Jordan','Taylor','Casey','Avery','Jamie'];
+  const last  = ['Lee','Carter','Kim','Rivera','Singh','Patel','Nguyen','Garcia'];
+  return first[Math.floor(Math.random()*first.length)]+" "+last[Math.floor(Math.random()*last.length)];
+}
+
+function log(msg) {
+  logEl.innerHTML += msg + "<br>";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function showStats() {
+  function bar(label, val) {
+    return `<div class="stat-bar">${label}: ${val}<div class="bar" style="width:${val}%"></div></div>`;
+  }
+  statsEl.innerHTML = `
+    <strong>${c.name}</strong>, Age ${c.age}<br>
+    ${bar("Happiness",c.happiness)}
+    ${bar("Health",c.health)}
+    ${bar("Smarts",c.smarts)}
+    ${bar("Looks",c.looks)}
+    Money: $${c.money}
+  `;
+}
+
+function nextYear() {
+  if (!c.alive) return;
+  c.age++;
+  log(`<b>Age ${c.age}</b>: A new year begins.`);
+  // natural health decline
+  if (c.age > 60) c.health = Math.max(0, c.health-1);
+  // pick event
+  const pool = events.filter(e => e.eligible(c));
+  if (pool.length === 0) {
+    log("Nothing special happens this year.");
+    nextBtn.style.display = "inline";
+    choicesEl.innerHTML = "";
+    showStats();
+    return;
+  }
+  const e = pool[Math.floor(Math.random()*pool.length)];
+  log(`<i>${e.title}</i>: ${e.text}`);
+  choicesEl.innerHTML = "";
+  e.choices.forEach(choice => {
+    const btn = document.createElement("button");
+    btn.innerText = choice.label;
+    btn.onclick = () => { applyChoice(choice); };
+    choicesEl.appendChild(btn);
+  });
+  showStats();
+}
+
+function applyChoice(choice) {
+  choice.effects.forEach(e => {
+    if (e.stat) {
+      if (e.percent) {
+        if (e.stat==="money") c.money = Math.floor(c.money*(1+e.percent/100));
+      } else {
+        c[e.stat] = Math.max(0, Math.min(100, c[e.stat]+e.delta));
+      }
     }
-    return pool.first;
-  }
+    if (e.addTrait) c.traits.push(e.addTrait);
+    if (e.deathChance && Math.random() < e.deathChance) {
+      c.alive = false;
+      log("⚠️ A tragic event occurred. You died.");
+    }
+  });
+  choicesEl.innerHTML = "";
+  if (c.alive) nextBtn.style.display = "inline";
+  else nextBtn.style.display = "none";
+  showStats();
+}
 
-  void restart() {
-    log.clear();
-    c = Character(name: _randomName());
-    log.add("You were born. Hello, ${c.name}!");
-    _nextYear();
-    notifyListeners();
+nextBtn.onclick = () => { nextBtn.style.display="none"; nextYear(); };
+
+log(`You were born. Welcome, ${c.name}!`);
+showStats();
+nextYear();
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Life Sim (HTML)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f8f8; }
+    h1 { margin-top: 0; }
+    #stats { margin-bottom: 15px; }
+    .stat-bar { margin: 5px 0; }
+    .bar { display: inline-block; height: 12px; background: #4caf50; }
+    #log { background: #fff; padding: 10px; border: 1px solid #ccc; height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    button { margin: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Life Sim (HTML Version)</h1>
+<div id="stats"></div>
+<div id="log"></div>
+<div id="choices"></div>
+<button id="nextBtn" style="display:none;">Next Year</button>
+
+<script>
+class Character {
+  constructor(name) {
+    this.name = name;
+    this.age = 0;
+    this.happiness = 50;
+    this.health = 50;
+    this.smarts = 50;
+    this.looks = 50;
+    this.money = 0;
+    this.alive = true;
+    this.traits = [];
   }
 }
 
-class GameScreen extends StatefulWidget {
-  const GameScreen({super.key});
-  @override
-  State<GameScreen> createState() => _GameScreenState();
-}
-
-class _GameScreenState extends State<GameScreen> {
-  late GameState state;
-
-  @override
-  void initState() {
-    super.initState();
-    state = GameState();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = state.c;
-    final e = state.currentEvent;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Life Sim — MVP')),
-      body: AnimatedBuilder(
-        animation: state,
-        builder: (context, _) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                _StatsBar(c: c),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView(
-                    children: state.log.map((line) => Text(line)).toList(),
-                  ),
-                ),
-                if (c.alive && e != null) ...[
-                  const Divider(),
-                  Text(e.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(e.text),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: e.choices.map((choice) {
-                      return ElevatedButton(
-                        onPressed: () => setState(() => state.applyChoice(choice)),
-                        child: Text(choice.label),
-                      );
-                    }).toList(),
-                  ),
-                ] else if (!c.alive) ...[
-                  const Divider(),
-                  ElevatedButton.icon(
-                    onPressed: () => setState(() => state.restart()),
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text("Start a new life"),
-                  )
-                ]
-              ],
-            ),
-          );
-        },
-      ),
-    );
+class Effect {
+  constructor({stat=null, delta=0, percent=0, addTrait=null, deathChance=0}) {
+    this.stat = stat;
+    this.delta = delta;
+    this.percent = percent;
+    this.addTrait = addTrait;
+    this.deathChance = deathChance;
   }
 }
 
-class _StatsBar extends StatelessWidget {
-  final Character c;
-  const _StatsBar({required this.c});
-  @override
-  Widget build(BuildContext context) {
-    Widget stat(String label, String value) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12)),
-        LinearProgressIndicator(value: double.parse(value) / 100.0),
-      ],
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text("${c.name}, Age ${c.age}${c.traits.isEmpty ? '' : ' • ' + c.traits.join(', ')}"),
-        const SizedBox(height: 6),
-        stat('Happiness', c.happiness.toString()),
-        stat('Health', c.health.toString()),
-        stat('Smarts', c.smarts.toString()),
-        stat('Looks', c.looks.toString()),
-        const SizedBox(height: 6),
-        Text("Money: \$${c.money}"),
-      ],
-    );
+class Choice {
+  constructor(label, effects=[]) {
+    this.label = label;
+    this.effects = effects;
   }
 }
+
+class Event {
+  constructor({id, title, text, minAge=0, maxAge=100, weight=1, choices=[]}) {
+    this.id = id; this.title = title; this.text = text;
+    this.minAge = minAge; this.maxAge = maxAge;
+    this.weight = weight; this.choices = choices;
+  }
+  eligible(c) { return c.age >= this.minAge && c.age <= this.maxAge; }
+}
+
+const events = [
+  new Event({
+    id: 'toy',
+    title: 'First Toy',
+    text: 'A relative gifts you a toy. What do you do?',
+    minAge: 1, maxAge: 4, weight: 3,
+    choices: [
+      new Choice('Share it', [new Effect({stat:'happiness', delta:5})]),
+      new Choice('Take it apart', [new Effect({stat:'smarts', delta:5})]),
+      new Choice('Throw a tantrum', [new Effect({stat:'happiness', delta:-5})]),
+    ]
+  }),
+  new Event({
+    id: 'exam',
+    title: 'School Exam',
+    text: 'You have an important exam.',
+    minAge: 6, maxAge: 18, weight: 4,
+    choices: [
+      new Choice('Study hard', [new Effect({stat:'smarts', delta:7}), new Effect({stat:'happiness', delta:-2})]),
+      new Choice('Wing it', [new Effect({stat:'smarts', delta: Math.floor(Math.random()*7)-3})]),
+    ]
+  }),
+  new Event({
+    id: 'job',
+    title: 'First Job',
+    text: 'You see a posting for a barista job.',
+    minAge: 16, maxAge: 30, weight: 3,
+    choices: [
+      new Choice('Apply', [new Effect({stat:'money', delta:500}), new Effect({stat:'happiness', delta:3})]),
+      new Choice('Ignore', [new Effect({stat:'happiness', delta:1})]),
+    ]
+  }),
+  new Event({
+    id: 'risky',
+    title: 'Risky Adventure',
+    text: 'Friends invite you to a risky adventure.',
+    minAge: 14, maxAge: 40, weight: 1,
+    choices: [
+      new Choice('Go for it', [new Effect({stat:'happiness', delta:6}), new Effect({deathChance:0.05})]),
+      new Choice('Play it safe', [new Effect({stat:'happiness', delta:-1})]),
+    ]
+  }),
+];
+
+let c = new Character(randomName());
+let logEl = document.getElementById("log");
+let statsEl = document.getElementById("stats");
+let choicesEl = document.getElementById("choices");
+let nextBtn = document.getElementById("nextBtn");
+
+function randomName() {
+  const first = ['Alex','Sam','Riley','Jordan','Taylor','Casey','Avery','Jamie'];
+  const last  = ['Lee','Carter','Kim','Rivera','Singh','Patel','Nguyen','Garcia'];
+  return first[Math.floor(Math.random()*first.length)]+" "+last[Math.floor(Math.random()*last.length)];
+}
+
+function log(msg) {
+  logEl.innerHTML += msg + "<br>";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function showStats() {
+  function bar(label, val) {
+    return `<div class="stat-bar">${label}: ${val}<div class="bar" style="width:${val}%"></div></div>`;
+  }
+  statsEl.innerHTML = `
+    <strong>${c.name}</strong>, Age ${c.age}<br>
+    ${bar("Happiness",c.happiness)}
+    ${bar("Health",c.health)}
+    ${bar("Smarts",c.smarts)}
+    ${bar("Looks",c.looks)}
+    Money: $${c.money}
+  `;
+}
+
+function nextYear() {
+  if (!c.alive) return;
+  c.age++;
+  log(`<b>Age ${c.age}</b>: A new year begins.`);
+  // natural health decline
+  if (c.age > 60) c.health = Math.max(0, c.health-1);
+  // pick event
+  const pool = events.filter(e => e.eligible(c));
+  if (pool.length === 0) {
+    log("Nothing special happens this year.");
+    nextBtn.style.display = "inline";
+    choicesEl.innerHTML = "";
+    showStats();
+    return;
+  }
+  const e = pool[Math.floor(Math.random()*pool.length)];
+  log(`<i>${e.title}</i>: ${e.text}`);
+  choicesEl.innerHTML = "";
+  e.choices.forEach(choice => {
+    const btn = document.createElement("button");
+    btn.innerText = choice.label;
+    btn.onclick = () => { applyChoice(choice); };
+    choicesEl.appendChild(btn);
+  });
+  showStats();
+}
+
+function applyChoice(choice) {
+  choice.effects.forEach(e => {
+    if (e.stat) {
+      if (e.percent) {
+        if (e.stat==="money") c.money = Math.floor(c.money*(1+e.percent/100));
+      } else {
+        c[e.stat] = Math.max(0, Math.min(100, c[e.stat]+e.delta));
+      }
+    }
+    if (e.addTrait) c.traits.push(e.addTrait);
+    if (e.deathChance && Math.random() < e.deathChance) {
+      c.alive = false;
+      log("⚠️ A tragic event occurred. You died.");
+    }
+  });
+  choicesEl.innerHTML = "";
+  if (c.alive) nextBtn.style.display = "inline";
+  else nextBtn.style.display = "none";
+  showStats();
+}
+
+nextBtn.onclick = () => { nextBtn.style.display="none"; nextYear(); };
+
+log(`You were born. Welcome, ${c.name}!`);
+showStats();
+nextYear();
+</script>
+
+</body>
+</html>
